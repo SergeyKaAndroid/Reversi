@@ -14,9 +14,10 @@ static uint64_t neighbors(uint64_t mask) {
     mask |= moveL(mask) | moveR(mask);
     return mask | moveU(mask) | moveD(mask);
 }
+
 static uint64_t fromRC(int r, int c) { return (1ULL << c) << (r << 3); }
-static uint64_t fromStr(string str) {
-    int r=-1, c=-1;
+static uint64_t fromStr(string str) { // Parses a squre reference from a string
+    int r=-1, c=-1;                   // like "e2" into a single bit mask
     for(char ch : str)
         if(ch > '0' && ch < '9')
             r = ch - '1';
@@ -27,9 +28,8 @@ static uint64_t fromStr(string str) {
     else
         return fromRC(r, c);
 }
-
-string toStr(uint64_t m) {
-    string s = "";
+string toStr(uint64_t m) { // Converts a mask to a space-separated square
+    string s = "";         // reference list like "e2 e4 f7 "
     for(int r=0; r<8; r++)
         for(int c=0; c<8; c++, m>>=1)
             if(m & 1ULL) {
@@ -108,16 +108,6 @@ public:
     }
 };
 
-// Random for now
-uint64_t ai(Board b, bool xMove) {
-    uint64_t ops = b.possibleMoves(xMove);
-    uint64_t choices[64]; int n = 0;
-    for(uint64_t i=1; i; i<<=1)
-        if(ops & i)
-            choices[n++] = i;
-    return choices[random()%n];
-}
-
 std::ostream& operator<< (ostream &out, const Board &board) {
     const char charSet[] = {'.', 'X', 'O', '?'};
     char buf[20] = "  a b c d e f g h\n";
@@ -134,43 +124,58 @@ std::ostream& operator<< (ostream &out, const Board &board) {
     return out << "  a b c d e f g h\n";
 }
 
+class Player {
+public:
+    bool isX;
+    Player(bool x): isX(x) {};
+    virtual uint64_t think(Board b) = 0;
+};
+
+
+// Only random AI for now
+class RandomAI : Player {
+public:
+    RandomAI(bool x): Player(x) {};
+    virtual uint64_t think(Board b);
+};
+
+// Human
+class Human : Player {
+public:
+    Human(bool x): Player(x) {};
+    virtual uint64_t think(Board b);
+};
+
 int main() {
     Board b;
     char *env = getenv("AI"); // Execute: AI=XY ./a.out
-    bool xMove = true,
-        aiX = env && strchr(env,'X'),
-        aiO = env && strchr(env,'O');
+    bool xMove = true;
+    Player
+        *playerX = (env && strchr(env,'X'))
+        ? (Player*)new RandomAI(true)
+        : (Player*)new Human(true),
+        *playerO = (env && strchr(env,'O'))
+        ? (Player*)new RandomAI(false)
+        : (Player*)new Human(false);
     srandomdev();
 
     for(bool done=false, xMove=true; ; xMove = !xMove) {
         uint64_t ops = b.possibleMoves(xMove);
-        if(ops)
-            for(;;) {
-                cout << Board(b.x | ops, b.o | ops)
-                     << (xMove?"X: ":"O: ")/* << toStr(ops) << ": "*/;
-                uint64_t m;
-                if(0 == (ops & (ops-1))) {
-                    cout << "Forced move\n";
-                    m = ops;
-                } else if(xMove ? aiX : aiO) {
-                    m = ai(b, xMove);
-                    cout << toStr(m) << "\n";
-                } else {
-                    string str;
-                    cin >> str;
-                    m = fromStr(str);
-                }
-                if(m & ops) {
-                    done = false;
-                    b = b.move(xMove, m);
-                    break;
-                }
-            }
-        else {
+        cout << Board(b.x | ops, b.o | ops)
+             << (xMove?"X: ":"O: ") << toStr(ops);
+        if(!ops) {
             cout << (xMove?"X can't move\n":"O can't move\n");
-            if(done)  break;
-            else      done = true;
-        }
+            if(done)
+                break;
+            done = true;
+            continue;
+        } else if(0 == (ops & (ops-1)))
+            cout << "Forced move\n";
+        else
+            ops = (xMove ? playerX : playerO)->think(b);
+        cout << ":" << toStr(ops) << "\n";
+        b = b.move(xMove, ops);
+        done = false;
     }
     int x=0, o=0;
     for(uint64_t m=1; m; m<<=1) {
@@ -180,3 +185,27 @@ int main() {
     cout << b << "Game over. X:" << x << " O:" << o << "\n";
     return 0;
 }
+
+uint64_t RandomAI::think(Board b) {
+    uint64_t ops = b.possibleMoves(isX);
+    uint64_t choices[64]; int n = 0;
+    for(uint64_t i=1; i; i<<=1)
+        if(ops & i)
+            choices[n++] = i;
+    return choices[random()%n];
+}
+
+uint64_t Human::think(Board b) {
+    uint64_t ops = b.possibleMoves(isX);
+    cout << ": ";
+    for(;;) {
+        string str;
+        cin >> str;
+        uint64_t m = fromStr(str);
+        if(m & ops)
+            return m;
+        else
+            cout << "Invalid move\n";
+    }
+}
+
