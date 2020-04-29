@@ -310,33 +310,36 @@ static int abMax(Board b, int depth, int alpha, int beta) {
 }
 
 uint64_t AlphaBeta::think(const Board &b, uint64_t ops) {
-    int depth = (1<<iq) / bitCountSparse(ops);
+    int nMoves = bitCountSparse(ops);
+        int depth = (1<<iq) / nMoves;
     uint64_t bestMove = 0;
     auto start = high_resolution_clock::now();
     incidence=0;
     memset(histo, 0, sizeof(histo));
     if(isX) { // Maximize
         int alpha = INT_MIN;
-        for(uint64_t m=ops; m; ops = m) {
-            m &= m-1;
-            uint64_t move = ops & ~m;
-            int v = abMin(b.move(true, move), depth, alpha, INT_MAX);
-            if(v > alpha) {
-                bestMove = move;
-                alpha = v;
+        for(uint64_t move = (1ULL << 63); move; move>>=1)
+            if(ops & move) {
+                int v = abMin(b.move(true, move), depth, alpha, INT_MAX);
+                if(v > alpha) {
+                    bestMove = move;
+                    alpha = v;
+                }
             }
-        }
+        if(ops && (alpha == INT_MAX) && gDebug)
+            cout << "\nX is gonna win\n";
     } else { // Minimize
         int beta = INT_MAX;
-        for(uint64_t m=ops; m; ops = m) {
-            m &= m-1;
-            uint64_t move = ops & ~m;
-            int v = abMax(b.move(false, move), depth, INT_MIN, beta);
-            if(v < beta) {
-                bestMove = move;
-                beta = v;
+        for(uint64_t move = (1ULL << 63); move; move>>=1)
+            if(ops & move) {
+                int v = abMax(b.move(false, move), depth, INT_MIN, beta);
+                if(v < beta) {
+                    bestMove = move;
+                    beta = v;
+                }
             }
-        }
+        if(ops && (beta == INT_MIN) && gDebug)
+            cout << "\nO is gonna win\n";
     }
     auto end = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(end - start);
@@ -345,9 +348,9 @@ uint64_t AlphaBeta::think(const Board &b, uint64_t ops) {
     else if(mc < 100000) iq++;
     int base = bitCountDense(b.x | b.o);
     cout << "\nEvaluated " << incidence << " boards, "
-         << mc/1000000. << "sec elapsed\n"
-         << "Analysis depth:\n";
+         << mc/1000000. << "sec elapsed\n";
     if(gDebug) {
+        cout << "Analysis depth:\n";
         for(int i=0; i<65; i++)
             if(histo[i])
                 cout << i-base << ": " << histo[i] << "\n";
