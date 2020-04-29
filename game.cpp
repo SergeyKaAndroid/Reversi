@@ -7,6 +7,9 @@
 using namespace std;
 using namespace std::chrono;
 bool gDebug = (NULL != getenv("DEBUG"));
+
+
+// Bitmask manipulations, to represent playing field as a uint64_t
 static uint64_t col(unsigned n) { return 0x0101010101010101ULL << n; }
 static uint64_t row(unsigned n) { return 0xFFULL << (n << 3); }
 static const uint64_t edgeL = col(0), edgeR = col(7), edgeT = row(0), edgeB = row(7);
@@ -43,7 +46,12 @@ static string toStr(uint64_t m) { // Converts a mask to a space-separated square
     return s;
 }
 
+// Verification/benchmark, paste anywhere executable:
+// for(uint64_t m=0; m<(1ULL<<28); m++)
+//    if(bitCountDense(m | (m<<30)) != bitCountSparse(m | (m<<30)))
+//        return -1;
 
+// BitCount quickest for args that have only a few 1's
 static int bitCountSparse(uint64_t m) {
     int ret = 0;
     for(; m ; m &= (m-1))
@@ -51,11 +59,8 @@ static int bitCountSparse(uint64_t m) {
     return ret;
 }
 
+// BitCount quickest for args that may have any number of 1's
 static int bitCountDense(uint64_t m) {
-    // Verification/benchmark, paste anywhere executable
-    // for(uint64_t m=0; m<(1ULL<<28); m++)
-    //    if(bitCountDense(m | (m<<30)) != bitCountSparse(m | (m<<30)))
-    //        return -1;
     uint64_t acc = m & 0x0101010101010101ULL;
     for(int i=1; i<8; i++)
         acc += (0x0101010101010101ULL & (m >> i));
