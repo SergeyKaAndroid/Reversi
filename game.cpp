@@ -65,7 +65,6 @@ static int bitCountDense(uint64_t m) {
 class Board {
 public:
     uint64_t x, o;
-    //Board(const Board &src): x(src.x), o(src.o) {};
     Board(uint64_t x, uint64_t o): x(x), o(o) {};
     Board(): x(fromRC(4,3) | fromRC(3,4)),
              o(fromRC(3,3) | fromRC(4,4)) {};
@@ -198,7 +197,7 @@ int main(int argc, char **argv) {
             done = true;
             continue;
         } else if(0 == (ops & (ops-1)))
-            cout << "Forced move\n";
+            cout << "Only one move - automatic\n";
         else
             ops = (xMove ? playerX : playerO)->think(b, ops);
         cout << ":" << toStr(ops) << "\n";
@@ -239,14 +238,14 @@ static const uint64_t
             edges = row(0) | row(7) | col(0) | col(7),
             corners = (row(0) | row(7)) & (col(0) | col(7));
 unsigned incidence;
-int histo[64];
+int histo[65];
 static int abScore(const Board &b) {
     uint64_t x = b.x, o = b.o;
     incidence++;
     int xCount=bitCountDense(x),
         oCount=bitCountDense(o);
     histo[xCount+oCount]++;
-    if( !(o | x) ) { // Board is full
+    if( xCount+oCount == 64 ) { // Board is full
         if(xCount == oCount) return 0;
         return xCount > oCount ? INT_MAX : INT_MIN;
     }
@@ -257,11 +256,9 @@ static int abScore(const Board &b) {
         xCorners = bitCountSparse(x & corners),
         oCorners = bitCountSparse(o & corners);
         
-    int score = xCount - oCount +
-        ((xCorners - oCorners) * gamePhaseFactor
-         + xSides - oSides) * gamePhaseFactor;
-    //cout << b << score << "\n";
-    return score;
+    return xCount - oCount +
+        gamePhaseFactor * (xSides - oSides +
+                           gamePhaseFactor * (xCorners - oCorners));
 }
 
 static int abMin(Board b, int depth, int alpha, int beta);
@@ -347,11 +344,11 @@ uint64_t AlphaBeta::think(const Board &b, uint64_t ops) {
     if(mc > 300000) iq--;
     else if(mc < 100000) iq++;
     int base = bitCountDense(b.x | b.o);
+    cout << "\nEvaluated " << incidence << " boards, "
+         << mc/1000000. << "sec elapsed\n"
+         << "Analysis depth:\n";
     if(gDebug) {
-        cout << "\nEvaluated " << incidence << " boards, "
-             << mc/1000000. << "sec elapsed\n"
-             << "Analysis depth:\n";
-        for(int i=0; i<64; i++)
+        for(int i=0; i<65; i++)
             if(histo[i])
                 cout << i-base << ": " << histo[i] << "\n";
     }
