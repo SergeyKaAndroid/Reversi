@@ -56,10 +56,13 @@ static int bitCountDense(uint64_t m) {
     // for(uint64_t m=0; m<(1ULL<<28); m++)
     //    if(bitCountDense(m | (m<<30)) != bitCountSparse(m | (m<<30)))
     //        return -1;
-    uint64_t table = 0x4332322132212110ULL;
-#define F(n) (0xF & (table >> ((0xF & (m >> (n*4)))<<2)))
-    return F(0)+F(1)+F(2)+F(3)+F(4)+F(5)+F(6)+F(7)+F(8)+F(9)+F(10)+F(11)+F(12)+F(13)+F(14)+F(15);
-    #undef F
+    uint64_t acc = m & 0x0101010101010101ULL;
+    for(int i=1; i<8; i++)
+        acc += (0x0101010101010101ULL & (m >> i));
+    acc += (acc >> 32);
+    acc += (acc >> 16);
+    acc += (acc >> 8);
+    return (int)(acc & 255ull);
 }
 
 class Board {
@@ -173,7 +176,7 @@ public:
     AlphaBeta(bool x): Player(x) {};
     virtual uint64_t think(const Board &b, uint64_t ops);
 };
-
+int maxEval=0, maxMsec=0;
 int main(int argc, char **argv) {
     Board b;
     char *env = getenv("AI"); // Execute: AI=XY ./a.out
@@ -210,6 +213,9 @@ int main(int argc, char **argv) {
         if(b.o & m) o++;
     }
     cout << b << "Game over. X:" << x << " O:" << o << "\n";
+    if(gDebug)
+        cout << "\nEvaluated max of " << maxEval << " boards, "
+         << maxMsec/1000000. << "sec\n";
     return 0;
 }
 
@@ -345,7 +351,11 @@ uint64_t AlphaBeta::think(const Board &b, uint64_t ops) {
     auto duration = duration_cast<microseconds>(end - start);
     int mc = duration.count();
     if(mc > 300000) iq--;
-    else if(mc < 100000) iq++;
+    else if(mc < 150000) iq++;
+    if(mc > maxMsec) {
+        maxMsec = mc;
+        maxEval = incidence;
+    }
     int base = bitCountDense(b.x | b.o);
     cout << "\nEvaluated " << incidence << " boards, "
          << mc/1000000. << "sec elapsed\n";
