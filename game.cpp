@@ -158,6 +158,7 @@ public:
     bool isX;
     Player(bool x): isX(x) {};
     virtual uint64_t think(const Board &b, uint64_t ops) = 0;
+    virtual void printStats() {};
 };
 
 
@@ -176,12 +177,27 @@ public:
 };
 
 class AlphaBeta : Player {
-    int iq = 20; // Aim to evaluate up to 2^IQ board configs
+    int IQ = 20; // Aim to evaluate up to 2^IQ board configs
+    uint64_t edges, corners;
+    int maxEval=0, maxMsec=0;
+    unsigned incidence;
+    int histo[65];
+    int abMin(Board b, int depth, int alpha, int beta);
+    int abMax(Board b, int depth, int alpha, int beta);
+    int abScore(const Board &b);
 public:
-    AlphaBeta(bool x): Player(x) {};
+    AlphaBeta(bool x): Player(x), maxEval(0), maxMsec(0), IQ(20) {
+        edges = row(0) | row(7) | col(0) | col(7);
+        corners = (row(0) | row(7)) & (col(0) | col(7));
+    };
     virtual uint64_t think(const Board &b, uint64_t ops);
+    virtual void printStats() {
+        cout << "Evaluated max of " << maxEval << " boards, "
+             << maxMsec/1000000. << "sec\n";
+    }
+
 };
-int maxEval=0, maxMsec=0;
+
 int main(int argc, char **argv) {
     Board b;
     char *env = getenv("AI"); // Execute: AI=XY ./a.out
@@ -218,9 +234,10 @@ int main(int argc, char **argv) {
         if(b.o & m) o++;
     }
     cout << b << "Game over. X:" << x << " O:" << o << "\n";
-    if(gDebug)
-        cout << "\nEvaluated max of " << maxEval << " boards, "
-         << maxMsec/1000000. << "sec\n";
+    if(gDebug) {
+        playerX->printStats();
+        playerO->printStats();
+    }
     return 0;
 }
 
@@ -245,12 +262,7 @@ uint64_t Human::think(const Board &b, uint64_t ops) {
     }
 }
 
-static const uint64_t
-            edges = row(0) | row(7) | col(0) | col(7),
-            corners = (row(0) | row(7)) & (col(0) | col(7));
-unsigned incidence;
-int histo[65];
-static int abScore(const Board &b) {
+int AlphaBeta::abScore(const Board &b) {
     uint64_t x = b.x, o = b.o;
     incidence++;
     int xCount=bitCountDense(x),
@@ -272,10 +284,7 @@ static int abScore(const Board &b) {
                            gamePhaseFactor * (xCorners - oCorners));
 }
 
-static int abMin(Board b, int depth, int alpha, int beta);
-static int abMax(Board b, int depth, int alpha, int beta);
-
-static int abMin(Board b, int depth, int alpha, int beta) {
+int AlphaBeta::abMin(Board b, int depth, int alpha, int beta) {
     if(depth==0)
         return abScore(b);
     uint64_t ops = b.possibleMoves(false);
@@ -297,7 +306,7 @@ static int abMin(Board b, int depth, int alpha, int beta) {
     }
     return vMin;
 }
-static int abMax(Board b, int depth, int alpha, int beta) {
+int AlphaBeta::abMax(Board b, int depth, int alpha, int beta) {
     if(depth==0)
         return abScore(b);
     uint64_t ops = b.possibleMoves(true);
@@ -322,7 +331,7 @@ static int abMax(Board b, int depth, int alpha, int beta) {
 
 uint64_t AlphaBeta::think(const Board &b, uint64_t ops) {
     int nMoves = bitCountSparse(ops);
-        int depth = (1<<iq) / nMoves;
+        int depth = (1<<IQ) / nMoves;
     uint64_t bestMove = 0;
     auto start = high_resolution_clock::now();
     incidence=0;
@@ -355,8 +364,8 @@ uint64_t AlphaBeta::think(const Board &b, uint64_t ops) {
     auto end = high_resolution_clock::now();
     auto duration = duration_cast<microseconds>(end - start);
     int mc = duration.count();
-    if(mc > 300000) iq--;
-    else if(mc < 150000) iq++;
+    if(mc > 300000) IQ--;
+    else if(mc < 150000) IQ++;
     if(mc > maxMsec) {
         maxMsec = mc;
         maxEval = incidence;
