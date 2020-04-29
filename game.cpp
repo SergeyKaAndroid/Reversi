@@ -1,8 +1,12 @@
+#include <time.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 #include <iostream>
+#include <chrono>
 using namespace std;
-
+using namespace std::chrono;
+bool gDebug = (NULL != getenv("DEBUG"));
 static uint64_t col(unsigned n) { return 0x0101010101010101ULL << n; }
 static uint64_t row(unsigned n) { return 0xFFULL << (n << 3); }
 static const uint64_t edgeL = col(0), edgeR = col(7), edgeT = row(0), edgeB = row(7);
@@ -28,8 +32,8 @@ static uint64_t fromStr(string str) { // Parses a squre reference from a string
     else
         return fromRC(r, c);
 }
-string toStr(uint64_t m) { // Converts a mask to a space-separated square
-    string s = "";         // reference list like "e2 e4 f7 "
+static string toStr(uint64_t m) { // Converts a mask to a space-separated square
+    string s = "";                // reference list like "e2 e4 f7 "
     for(int r=0; r<8; r++)
         for(int c=0; c<8; c++, m>>=1)
             if(m & 1ULL) {
@@ -39,6 +43,24 @@ string toStr(uint64_t m) { // Converts a mask to a space-separated square
     return s;
 }
 
+
+static int bitCountSparse(uint64_t m) {
+    int ret = 0;
+    for(; m ; m &= (m-1))
+        ret++;
+    return ret;
+}
+
+static int bitCountDense(uint64_t m) {
+    // Verification/benchmark, paste anywhere executable
+    // for(uint64_t m=0; m<(1ULL<<28); m++)
+    //    if(bitCountDense(m | (m<<30)) != bitCountSparse(m | (m<<30)))
+    //        return -1;
+    uint64_t table = 0x4332322132212110ULL;
+#define F(n) (0xF & (table >> ((0xF & (m >> (n*4)))<<2)))
+    return F(0)+F(1)+F(2)+F(3)+F(4)+F(5)+F(6)+F(7)+F(8)+F(9)+F(10)+F(11)+F(12)+F(13)+F(14)+F(15);
+    #undef F
+}
 
 class Board {
 public:
@@ -86,12 +108,12 @@ public:
                     consider &= ~i;
         return consider;
     }
-    uint64_t possibleMoves(bool xMove) {
+    uint64_t possibleMoves(bool xMove) const {
         return possibleMoves( xMove ? x : o,
                               xMove ? o : x );
     }
 
-    Board move(bool xMove, uint64_t m) {
+    Board move(bool xMove, uint64_t m) const {
         Board ret(*this);
         uint64_t &me = xMove ? ret.x : ret.o;
         uint64_t &he = xMove ? ret.o : ret.x;
@@ -100,10 +122,10 @@ public:
         he &= ~cap;
         return ret;
     }
-    Board move(bool xMove, int r, int c) {
+    Board move(bool xMove, int r, int c) const {
         return move(xMove, fromRC(r, c));
     }
-    Board move(bool xMove, const string str) {
+    Board move(bool xMove, const string str) const {
         return move(xMove, fromStr(str));
     }
 };
@@ -128,36 +150,42 @@ class Player {
 public:
     bool isX;
     Player(bool x): isX(x) {};
-    virtual uint64_t think(Board b) = 0;
+    virtual uint64_t think(const Board &b, uint64_t ops) = 0;
 };
 
 
 // Only random AI for now
 class RandomAI : Player {
 public:
-    RandomAI(bool x): Player(x) {};
-    virtual uint64_t think(Board b);
+    RandomAI(bool x): Player(x) { srandomdev(); };
+    virtual uint64_t think(const Board &b, uint64_t ops);
 };
 
 // Human
 class Human : Player {
 public:
     Human(bool x): Player(x) {};
-    virtual uint64_t think(Board b);
+    virtual uint64_t think(const Board &b, uint64_t ops);
 };
 
-int main() {
+class AlphaBeta : Player {
+    int iq = 20; // Aim to evaluate up to 2^IQ board configs
+public:
+    AlphaBeta(bool x): Player(x) {};
+    virtual uint64_t think(const Board &b, uint64_t ops);
+};
+
+int main(int argc, char **argv) {
     Board b;
     char *env = getenv("AI"); // Execute: AI=XY ./a.out
     bool xMove = true;
     Player
         *playerX = (env && strchr(env,'X'))
-        ? (Player*)new RandomAI(true)
+        ? (Player*)new AlphaBeta(true)
         : (Player*)new Human(true),
         *playerO = (env && strchr(env,'O'))
-        ? (Player*)new RandomAI(false)
+        ? (Player*)new AlphaBeta(false)
         : (Player*)new Human(false);
-    srandomdev();
 
     for(bool done=false, xMove=true; ; xMove = !xMove) {
         uint64_t ops = b.possibleMoves(xMove);
@@ -172,7 +200,7 @@ int main() {
         } else if(0 == (ops & (ops-1)))
             cout << "Forced move\n";
         else
-            ops = (xMove ? playerX : playerO)->think(b);
+            ops = (xMove ? playerX : playerO)->think(b, ops);
         cout << ":" << toStr(ops) << "\n";
         b = b.move(xMove, ops);
         done = false;
@@ -186,8 +214,7 @@ int main() {
     return 0;
 }
 
-uint64_t RandomAI::think(Board b) {
-    uint64_t ops = b.possibleMoves(isX);
+uint64_t RandomAI::think(const Board &b, uint64_t ops) {
     uint64_t choices[64]; int n = 0;
     for(uint64_t i=1; i; i<<=1)
         if(ops & i)
@@ -195,8 +222,7 @@ uint64_t RandomAI::think(Board b) {
     return choices[random()%n];
 }
 
-uint64_t Human::think(Board b) {
-    uint64_t ops = b.possibleMoves(isX);
+uint64_t Human::think(const Board &b, uint64_t ops) {
     cout << ": ";
     for(;;) {
         string str;
@@ -209,3 +235,125 @@ uint64_t Human::think(Board b) {
     }
 }
 
+static const uint64_t
+            edges = row(0) | row(7) | col(0) | col(7),
+            corners = (row(0) | row(7)) & (col(0) | col(7));
+unsigned incidence;
+int histo[64];
+static int abScore(const Board &b) {
+    uint64_t x = b.x, o = b.o;
+    incidence++;
+    int xCount=bitCountDense(x),
+        oCount=bitCountDense(o);
+    histo[xCount+oCount]++;
+    if( !(o | x) ) { // Board is full
+        if(xCount == oCount) return 0;
+        return xCount > oCount ? INT_MAX : INT_MIN;
+    }
+
+    int gamePhaseFactor = (80-oCount-xCount)/16,
+        xSides = bitCountSparse(x & edges),
+        oSides = bitCountSparse(o & edges),
+        xCorners = bitCountSparse(x & corners),
+        oCorners = bitCountSparse(o & corners);
+        
+    int score = xCount - oCount +
+        ((xCorners - oCorners) * gamePhaseFactor
+         + xSides - oSides) * gamePhaseFactor;
+    //cout << b << score << "\n";
+    return score;
+}
+
+static int abMin(Board b, int depth, int alpha, int beta);
+static int abMax(Board b, int depth, int alpha, int beta);
+
+static int abMin(Board b, int depth, int alpha, int beta) {
+    if(depth==0)
+        return abScore(b);
+    uint64_t ops = b.possibleMoves(false);
+    if(!ops)
+        return abMax(b, b.possibleMoves(true)?depth:0, alpha, beta);
+    int vMin = INT_MAX;
+    depth /= bitCountSparse(ops);
+    for(uint64_t m=ops; m; ops = m) {
+        m &= m-1;
+        uint64_t move = ops & ~m;
+        int v = abMax(b.move(false, move), depth, alpha, beta);
+        if(v < vMin) {
+            vMin = v;
+            if(vMin < beta)
+                beta = vMin;
+            if(alpha >= beta)
+                break;
+        }
+    }
+    return vMin;
+}
+static int abMax(Board b, int depth, int alpha, int beta) {
+    if(depth==0)
+        return abScore(b);
+    uint64_t ops = b.possibleMoves(true);
+    if(!ops)
+        return abMin(b, b.possibleMoves(false)?depth:0, alpha, beta);
+    int vMax = INT_MIN;
+    depth /= bitCountSparse(ops);
+    for(uint64_t m=ops; m; ops = m) {
+        m &= m-1;
+        uint64_t move = ops & ~m;
+        int v = abMin(b.move(true, move), depth, alpha, beta);
+        if(v > vMax) {
+            vMax = v;
+            if(vMax > alpha)
+                alpha = vMax;
+            if(alpha >= beta)
+                break;
+        }
+    }
+    return vMax;
+}
+
+uint64_t AlphaBeta::think(const Board &b, uint64_t ops) {
+    int depth = (1<<iq) / bitCountSparse(ops);
+    uint64_t bestMove = 0;
+    auto start = high_resolution_clock::now();
+    incidence=0;
+    memset(histo, 0, sizeof(histo));
+    if(isX) { // Maximize
+        int alpha = INT_MIN;
+        for(uint64_t m=ops; m; ops = m) {
+            m &= m-1;
+            uint64_t move = ops & ~m;
+            int v = abMin(b.move(true, move), depth, alpha, INT_MAX);
+            if(v > alpha) {
+                bestMove = move;
+                alpha = v;
+            }
+        }
+    } else { // Minimize
+        int beta = INT_MAX;
+        for(uint64_t m=ops; m; ops = m) {
+            m &= m-1;
+            uint64_t move = ops & ~m;
+            int v = abMax(b.move(false, move), depth, INT_MIN, beta);
+            if(v < beta) {
+                bestMove = move;
+                beta = v;
+            }
+        }
+    }
+    auto end = high_resolution_clock::now();
+    auto duration = duration_cast<microseconds>(end - start);
+    int mc = duration.count();
+    if(mc > 300000) iq--;
+    else if(mc < 100000) iq++;
+    int base = bitCountDense(b.x | b.o);
+    if(gDebug) {
+        cout << "\nEvaluated " << incidence << " boards, "
+             << mc/1000000. << "sec elapsed\n"
+             << "Analysis depth:\n";
+        for(int i=0; i<64; i++)
+            if(histo[i])
+                cout << i-base << ": " << histo[i] << "\n";
+    }
+    return bestMove;
+}
