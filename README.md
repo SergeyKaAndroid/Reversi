@@ -13,6 +13,6 @@ Run to play AI for X vs human for O:
 > AI=X ./game
 
 And yes, you can make it play with itself:
-> AI=XY ./game
+> AI=XO ./game
 
 Also, define DEBUG environment variable to see some stats
