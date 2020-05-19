@@ -59,8 +59,15 @@ static int bitCountSparse(uint64_t m) {
     return ret;
 }
 
-// BitCount quickest for args that may have any number of 1's
-static int bitCountDense(uint64_t m) {
+#ifndef __has_builtin       // Optional of course.
+#define __has_builtin(x) 0  // Compatibility with non-clang compilers.
+#endif
+#if __has_builtin(__builtin_popcountll)
+#define bitCountDense(x) __builtin_popcountll(x)
+#else
+// BitCount quickest for args that may have any number of 1's,
+// almost as fast as __builtin_popcountll()
+static int _bitCountDense(uint64_t m) {
     uint64_t acc = m & 0x0101010101010101ULL;
     for(int i=1; i<8; i++)
         acc += (0x0101010101010101ULL & (m >> i));
@@ -69,6 +76,7 @@ static int bitCountDense(uint64_t m) {
     acc += (acc >> 8);
     return (int)(acc & 255ull);
 }
+#endif
 
 class Board {
 public:
